@@ -174,8 +174,10 @@ severity совпадают. TTL возраста (`scan_checkpoint_ttl`) в inc
 FAIL/ERROR checkpoint не получают и сканируются каждый прогон. `scan_mode=full`
 игнорирует checkpoints и пересканирует всё (отдельное правило, например на
 субботу). Если ранее PASS-артефакт на полном rescan стал FAIL (новая CVE),
-`--upload` / `verify_upload` удаляет его и checksum/signature sidecar'ы
-(`.md5`/`.sha1`/…) из remote hosted `*-verified` и из локального `*-verified`.
+`--upload` / `verify_upload` удаляет его, checksum/signature sidecar'ы
+(`.md5`/`.sha1`/…) и соседний Maven `{artifactId}-{version}.pom` (плюс checksum'ы POM)
+из remote hosted `*-verified` и из локального `*-verified`. Classifier'ы
+(`-sources`, `-i18n`) и `maven-metadata.xml` не трогаем.
 ERROR сканера пакет не снимает. Учётной записи Nexus нужно право удалять
 ассеты в hosted (не только upload). `scan_checkpoint_ttl = 0` полностью
 выключает skip.
@@ -586,7 +588,7 @@ API-ключ: в UI DefectDojo → профиль → **API Key**.
 
 ## Ограничения текущей версии
 
-- Upload verified создаёт hosted `<repo>-verified` **того же format**, что источник (npm/maven2/pypi/raw); npm metadata / non-package файлы при upload пропускаются; заливаются PASS из последнего `verified-manifest.json` и их checksum/signature sidecar'ы (`.md5`/`.sha1`/…, без сканирования); stale-файлы в локальном `*-verified` не грузятся. FAIL из текущего verify (и `failed_assets` в манифесте) удаляются из remote `*-verified` вместе с sidecar'ами; maven-metadata / archetype-catalog не трогаем
+- Upload verified создаёт hosted `<repo>-verified` **того же format**, что источник (npm/maven2/pypi/raw); npm metadata / non-package файлы при upload пропускаются; заливаются PASS из последнего `verified-manifest.json` и их checksum/signature sidecar'ы (`.md5`/`.sha1`/…, без сканирования); stale-файлы в локальном `*-verified` не грузятся. FAIL из текущего verify (и `failed_assets` в манифесте) удаляются из remote `*-verified` вместе с sidecar'ами и Maven-модульным `.pom`; maven-metadata / archetype-catalog не трогаем
 - Нет произвольного admin write в Nexus (создание hosted `*-verified`, upload PASS и delete только FAIL-ассетов в этом hosted)
 - Для docker нужны skopeo или docker CLI
 - Очень большие репозитории загружают все ассеты в память для построения дерева (пагинация используется на проводе)

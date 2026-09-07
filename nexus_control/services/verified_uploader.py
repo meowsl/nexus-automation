@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str, float, str], None]
 
 _SHARED_METADATA_NAMES = frozenset({"maven-metadata.xml", "archetype-catalog.xml"})
+_MAVEN_MAIN_EXTENSIONS = frozenset({"jar", "war", "ear", "aar"})
 
 
 @dataclass
@@ -144,8 +145,34 @@ def collect_revoke_mains(
     return mains
 
 
+def maven_module_pom_path(asset_path: str) -> str | None:
+    """Sibling ``{artifactId}-{version}.pom`` for a Maven main binary (no classifier).
+
+    ``com/acme/lib/1.0/lib-1.0.jar`` → ``com/acme/lib/1.0/lib-1.0.pom``.
+    Classifier jars (``-sources``, ``-i18n``) are not the module POM.
+    """
+    key = _normalize_asset_path_key(asset_path)
+    filename = PurePosixPath(key).name
+    main_name = main_asset_path_for_sidecar(filename) or filename
+    parts = PurePosixPath(key).with_name(main_name).parts
+    if len(parts) < 4:
+        return None
+    name = parts[-1]
+    version = parts[-2]
+    artifact_id = parts[-3]
+    if "." not in name:
+        return None
+    stem, ext = name.rsplit(".", 1)
+    if ext.lower() not in _MAVEN_MAIN_EXTENSIONS:
+        return None
+    if stem != f"{artifact_id}-{version}":
+        return None
+    parent = "/".join(parts[:-1])
+    return f"{parent}/{artifact_id}-{version}.pom"
+
+
 def expand_revoke_keys(mains: Iterable[str], *, fmt: str = "") -> list[str]:
-    """Пути основного артефакта, nuget-варианты и checksum/signature sidecar'ы."""
+    """Пути основного артефакта, nuget-варианты, checksum sidecar'ы и Maven POM."""
     keys: list[str] = []
     seen: set[str] = set()
     fmt_l = (fmt or "").lower().strip()
@@ -178,6 +205,12 @@ def expand_revoke_keys(mains: Iterable[str], *, fmt: str = "") -> list[str]:
                 add(variant + suffix)
             if fmt_l == "pypi":
                 add(variant + ".metadata")
+            if fmt_l == "maven2":
+                pom = maven_module_pom_path(variant)
+                if pom:
+                    add(pom)
+                    for suffix in SCAN_IGNORE_SUFFIXES:
+                        add(pom + suffix)
     return keys
 
 
@@ -323,6 +356,12 @@ class VerifiedUploader:
         items = collect_upload_items(summary)
         revoke_mains = collect_revoke_mains(summary, extra_revoke_paths)
         revoke_keys = expand_revoke_keys(revoke_mains, fmt=fmt)
+        revoked = {_normalize_asset_path_key(key) for key in revoke_keys}
+        items = [
+            (path, local)
+            for path, local in items
+            if _normalize_asset_path_key(path) not in revoked
+        ]
         out = UploadSummary(
             source_repository=summary.repository,
             target_repository=target,

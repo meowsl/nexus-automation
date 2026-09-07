@@ -27,6 +27,7 @@ from nexus_control.services.verified_uploader import (
     expand_revoke_keys,
     index_remote_assets,
     is_shared_metadata_path,
+    maven_module_pom_path,
     normalize_upload_repo_name,
     remote_assets_to_revoke,
     should_skip_unchanged_upload,
@@ -228,6 +229,8 @@ def test_expand_revoke_keys_includes_sidecars_and_nuget_variants() -> None:
     assert "cib/jdbc/2.0.1/jdbc-2.0.1.jar" in maven
     assert "cib/jdbc/2.0.1/jdbc-2.0.1.jar.sha1" in maven
     assert "cib/jdbc/2.0.1/jdbc-2.0.1.jar.md5" in maven
+    assert "cib/jdbc/2.0.1/jdbc-2.0.1.pom" in maven
+    assert "cib/jdbc/2.0.1/jdbc-2.0.1.pom.sha1" in maven
     assert "org/foo/maven-metadata.xml" not in maven
 
     nuget = expand_revoke_keys(["NexusControl.Seed.Pkg003/1.0.3"], fmt="nuget")
@@ -238,18 +241,53 @@ def test_expand_revoke_keys_includes_sidecars_and_nuget_variants() -> None:
     ) in nuget
 
 
+def test_maven_module_pom_path_main_jar_only() -> None:
+    assert (
+        maven_module_pom_path(
+            "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.jar"
+        )
+        == "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.pom"
+    )
+    assert (
+        maven_module_pom_path(
+            "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.jar.sha1"
+        )
+        == "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.pom"
+    )
+    assert (
+        maven_module_pom_path(
+            "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6-i18n.jar"
+        )
+        is None
+    )
+    assert (
+        maven_module_pom_path(
+            "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.pom"
+        )
+        is None
+    )
+    classifier_keys = expand_revoke_keys(
+        ["com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6-sources.jar"],
+        fmt="maven2",
+    )
+    assert (
+        "com/bssys/retail-api/cashoff/3.3.55.6/cashoff-3.3.55.6.pom"
+        not in classifier_keys
+    )
+
+
 def test_remote_assets_to_revoke_matches_sidecars() -> None:
     remote = index_remote_assets(
         [
             NexusAsset(
                 id="jar",
-                path="cib/jdbc/2.0.1/bad.jar",
+                path="cib/jdbc/2.0.1/jdbc-2.0.1.jar",
                 download_url=None,
                 repository="v",
             ),
             NexusAsset(
                 id="sha1",
-                path="cib/jdbc/2.0.1/bad.jar.sha1",
+                path="cib/jdbc/2.0.1/jdbc-2.0.1.jar.sha1",
                 download_url=None,
                 repository="v",
             ),
@@ -266,17 +304,29 @@ def test_remote_assets_to_revoke_matches_sidecars() -> None:
                 repository="v",
             ),
             NexusAsset(
+                id="pom",
+                path="cib/jdbc/2.0.1/jdbc-2.0.1.pom",
+                download_url=None,
+                repository="v",
+            ),
+            NexusAsset(
+                id="pom-sha1",
+                path="cib/jdbc/2.0.1/jdbc-2.0.1.pom.sha1",
+                download_url=None,
+                repository="v",
+            ),
+            NexusAsset(
                 id="trash-pom",
-                path="cib/jdbc/2.0.1/bad.jar./1.0-bad.jar..pom",
+                path="cib/jdbc/2.0.1/jdbc-2.0.1.jar./1.0-jdbc-2.0.1.jar..pom",
                 download_url=None,
                 repository="v",
             ),
         ]
     )
-    keys = expand_revoke_keys(["cib/jdbc/2.0.1/bad.jar"], fmt="maven2")
+    keys = expand_revoke_keys(["cib/jdbc/2.0.1/jdbc-2.0.1.jar"], fmt="maven2")
     revoked = remote_assets_to_revoke(remote, keys)
     ids = {a.id for a in revoked}
-    assert ids == {"jar", "sha1", "trash-pom"}
+    assert ids == {"jar", "sha1", "pom", "pom-sha1", "trash-pom"}
 
 
 class _FakeNexus:
@@ -384,6 +434,100 @@ def test_upload_revokes_fail_and_sidecars_even_without_pass(tmp_path: Path) -> N
     assert not bad.exists()
     assert not sha1.exists()
     assert keep.exists()
+
+
+def test_upload_revokes_fail_jar_and_module_pom(tmp_path: Path) -> None:
+    verified = (
+        tmp_path
+        / "verified"
+        / "maven-hosted-verified"
+        / "com"
+        / "bssys"
+        / "retail-api"
+        / "cashoff"
+        / "3.3.55.6"
+    )
+    verified.mkdir(parents=True)
+    jar = verified / "cashoff-3.3.55.6.jar"
+    jar_sha1 = verified / "cashoff-3.3.55.6.jar.sha1"
+    pom = verified / "cashoff-3.3.55.6.pom"
+    pom_sha1 = verified / "cashoff-3.3.55.6.pom.sha1"
+    i18n = verified / "cashoff-3.3.55.6-i18n.jar"
+    for path, data in (
+        (jar, b"jar"),
+        (jar_sha1, b"jsha"),
+        (pom, b"<project/>"),
+        (pom_sha1, b"psha"),
+        (i18n, b"i18n"),
+    ):
+        path.write_bytes(data)
+
+    base = "com/bssys/retail-api/cashoff/3.3.55.6"
+    remote = [
+        NexusAsset(
+            id="jar-id",
+            path=f"{base}/cashoff-3.3.55.6.jar",
+            download_url=None,
+            repository="maven-hosted-verified",
+        ),
+        NexusAsset(
+            id="jar-sha-id",
+            path=f"{base}/cashoff-3.3.55.6.jar.sha1",
+            download_url=None,
+            repository="maven-hosted-verified",
+        ),
+        NexusAsset(
+            id="pom-id",
+            path=f"{base}/cashoff-3.3.55.6.pom",
+            download_url=None,
+            repository="maven-hosted-verified",
+        ),
+        NexusAsset(
+            id="pom-sha-id",
+            path=f"{base}/cashoff-3.3.55.6.pom.sha1",
+            download_url=None,
+            repository="maven-hosted-verified",
+        ),
+        NexusAsset(
+            id="i18n-id",
+            path=f"{base}/cashoff-3.3.55.6-i18n.jar",
+            download_url=None,
+            repository="maven-hosted-verified",
+        ),
+    ]
+    client = _FakeNexus(tmp_path, remote)
+    summary = PipelineSummary(
+        repository="maven-hosted",
+        results=[
+            _result(
+                f"{base}/cashoff-3.3.55.6.jar",
+                jar,
+                verdict=Verdict.FAIL,
+                copied=False,
+            ),
+            _result(
+                f"{base}/cashoff-3.3.55.6.pom",
+                pom,
+                verdict=Verdict.PASS,
+            ),
+        ],
+    )
+    summary.results[0].verify = VerifyResult(copied=False)
+
+    up = VerifiedUploader(client).upload(summary)  # type: ignore[arg-type]
+    assert sorted(client.deleted_ids) == [
+        "jar-id",
+        "jar-sha-id",
+        "pom-id",
+        "pom-sha-id",
+    ]
+    assert f"{base}/cashoff-3.3.55.6.pom" not in client.uploaded_paths
+    assert up.deleted == 4
+    assert not jar.exists()
+    assert not jar_sha1.exists()
+    assert not pom.exists()
+    assert not pom_sha1.exists()
+    assert i18n.exists()
 
 
 def test_upload_revoke_skips_missing_remote_repo(tmp_path: Path) -> None:
