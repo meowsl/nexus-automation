@@ -558,11 +558,11 @@ def test_client_send_text_posts(monkeypatch: pytest.MonkeyPatch) -> None:
         inline_keyboard=upload_keyboard("up:x"),
     )
     assert out["ok"] is True
-    assert captured["method"] == "GET"
+    assert captured["method"] == "POST"
     assert captured["path"] == "/messages/sendText"
     assert captured["params"]["token"] == "t"
-    assert captured["params"]["chatId"] == "chat"
-    assert "inlineKeyboardMarkup" in captured["params"]
+    assert captured["data"]["chatId"] == "chat"
+    assert "inlineKeyboardMarkup" in captured["data"]
 
 
 def test_client_api_error(monkeypatch: pytest.MonkeyPatch) -> None:

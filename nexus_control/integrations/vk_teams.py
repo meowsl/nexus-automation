@@ -235,19 +235,20 @@ class VkTeamsClient:
         parse_mode: str | None = "HTML",
         inline_keyboard: list[list[dict[str, str]]] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
+        payload: dict[str, Any] = {
             "chatId": chat_id,
             "text": text,
         }
         if parse_mode:
-            params["parseMode"] = parse_mode
+            payload["parseMode"] = parse_mode
         if inline_keyboard is not None:
-            params["inlineKeyboardMarkup"] = json.dumps(
+            payload["inlineKeyboardMarkup"] = json.dumps(
                 inline_keyboard,
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
-        return self._request("GET", "/messages/sendText", params=params)
+        # POST: long scheduler HTML + keyboard exceed GET query limits (Bad request).
+        return self._request("POST", "/messages/sendText", data=payload)
 
     def edit_text(
         self,
@@ -258,23 +259,23 @@ class VkTeamsClient:
         parse_mode: str | None = "HTML",
         inline_keyboard: list[list[dict[str, str]]] | None = None,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {
+        payload: dict[str, Any] = {
             "chatId": chat_id,
             "msgId": str(msg_id),
             "text": text,
         }
         if parse_mode:
-            params["parseMode"] = parse_mode
+            payload["parseMode"] = parse_mode
         if inline_keyboard is not None:
-            params["inlineKeyboardMarkup"] = json.dumps(
+            payload["inlineKeyboardMarkup"] = json.dumps(
                 inline_keyboard,
                 ensure_ascii=False,
                 separators=(",", ":"),
             )
         else:
             # Empty keyboard removes buttons.
-            params["inlineKeyboardMarkup"] = "[]"
-        return self._request("GET", "/messages/editText", params=params)
+            payload["inlineKeyboardMarkup"] = "[]"
+        return self._request("POST", "/messages/editText", data=payload)
 
     def self_get(self) -> dict[str, Any]:
         """Bot identity probe (``/self/get``)."""

@@ -482,6 +482,7 @@ def notify_rule_finished(
         upload_callback=upload_callback,
     )
 
+    keyboard_sent = keyboard is not None
     try:
         response = bot.send_text(
             chat_id,
@@ -490,8 +491,28 @@ def notify_rule_finished(
             inline_keyboard=keyboard,
         )
     except VkTeamsError as exc:
-        logger.error("VK Teams notify failed: %s", exc)
-        return
+        if keyboard is not None and "bad request" in str(exc).casefold():
+            logger.warning(
+                "VK Teams notify with keyboard failed (%s), retrying without buttons",
+                exc,
+            )
+            keyboard_sent = False
+            try:
+                response = bot.send_text(
+                    chat_id,
+                    text,
+                    parse_mode="HTML",
+                    inline_keyboard=None,
+                )
+            except VkTeamsError as retry_exc:
+                logger.error("VK Teams notify failed: %s", retry_exc)
+                return
+        else:
+            logger.error("VK Teams notify failed: %s", exc)
+            return
+
+    if pending is not None and not keyboard_sent:
+        pending = None
 
     if pending is not None:
         msg_id = _extract_msg_id(response)

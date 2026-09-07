@@ -173,6 +173,13 @@ def _test() -> int:
             "🔍 <b>nexus-control</b>\nПроверка связи с VK Teams — всё работает.",
             parse_mode="HTML",
         )
+        if cfg.vk_teams_upload_button:
+            bot.send_text(
+                cfg.vk_teams_chat_id,
+                "Проверка кнопки Upload (как в scheduler).",
+                parse_mode="HTML",
+                inline_keyboard=[[{"text": "Загрузить в Nexus", "callbackData": "up:test"}]],
+            )
     except VkTeamsError as exc:
         console.print(f"[red]VK Teams test failed:[/red] {exc}")
         return 1
